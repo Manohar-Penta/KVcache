@@ -1,0 +1,5 @@
+.vscode
+*.json
+*.out
+result
+thread_result

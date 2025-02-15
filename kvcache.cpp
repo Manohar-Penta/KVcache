@@ -36,7 +36,6 @@ KVcache::KVcache(std::string name)
             std::ifstream initFile(name);
             std::string content;
             getline(initFile, content);
-            std::cout << content << std::endl;
             j = json::parse(content);
         }
         catch (const std::exception &e)
@@ -58,8 +57,9 @@ KVcache::KVcache(std::string name)
     }
 
     fcntl(fd, F_SETLKW, &lock);
-    std::cout << "Locked the file : " << name << "\n";
+
     importFile(j);
+    exportFile();
 };
 
 json KVcache::getKey(std::string key)
@@ -69,7 +69,10 @@ json KVcache::getKey(std::string key)
     cv.wait(ul, []()
             { return true; });
 
+    // clearing expired entries
     clearExpired();
+
+    // returning early if key does not exist
     if (cache.find(key) == cache.end())
     {
         ul.unlock();
@@ -120,12 +123,12 @@ void KVcache::putKey(std::string key, std::string value, int expiry)
         }
         else
         {
-            throw std::runtime_error("Key already exists");
+            throw std::runtime_error(key + " already exists");
         }
     }
     catch (const std::exception &e)
     {
-        std::cout << "error in putKey ";
+        std::cout << "error while Creating entry : ";
         std::cerr << e.what() << '\n';
     }
 
@@ -171,9 +174,9 @@ void KVcache::batchCreate(int n, KVE val[])
         {
             std::cerr << e.what() << '\n';
         }
-        exportFile();
     }
 
+    exportFile();
     ul.unlock();
     cv.notify_one();
 }
@@ -260,6 +263,7 @@ void KVcache::exportFile()
 
         std::string data = j.dump();
         ftruncate(fd, 0);
+        lseek(fd, 0, SEEK_SET);
         write(fd, data.c_str(), data.size());
     }
     catch (json::exception &e)
@@ -288,7 +292,7 @@ void KVcache::importFile(json &j)
                 {
                     continue;
                 }
-                size += key.size() + value.dump().size();
+                size += key.size() + value["data"].dump().size();
                 Node *node = new Node(key, value["data"], value["expiry"]);
                 insertAfterStart(node);
                 cache[key] = node;
