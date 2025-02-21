@@ -62,6 +62,10 @@ KVcache::KVcache(std::string name)
     exportFile();
 };
 
+KVcache::~KVcache()
+{
+    delete head, tail;
+}
 json KVcache::getKey(std::string key)
 {
     // acquiring lock for the mutex

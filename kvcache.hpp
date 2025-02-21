@@ -52,7 +52,7 @@ class KVcache
 
 public:
     KVcache(std::string name = "./data-store.json");
-
+    ~KVcache();
     json getKey(std::string key);
     void putKey(std::string key, std::string value, int expiry = -1);
     void deleteKey(std::string key);
