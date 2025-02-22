@@ -33,6 +33,7 @@ KVcache::KVcache(std::string name)
     {
         try
         {
+            // reading from the file and converting to json
             std::ifstream initFile(name);
             std::string content;
             getline(initFile, content);
@@ -58,10 +59,12 @@ KVcache::KVcache(std::string name)
 
     fcntl(fd, F_SETLKW, &lock);
 
+    // importing from the file after locking it
     importFile(j);
     exportFile();
 };
 
+// destructor
 KVcache::~KVcache()
 {
     delete head, tail;
@@ -104,10 +107,18 @@ void KVcache::putKey(std::string key, std::string value, int expiry)
     try
     {
         clearExpired();
+        // validating key and value lengths
+        if (key.size() > 32 || value.size() > 16 * 1024)
+        {
+            std::cerr << "key or value too long\n";
+            return;
+        }
+        // checking if the key already exists in the cache
         if (cache.find(key) == cache.end())
         {
-            cache[key] = new Node(key, json::parse(value), expiry == -1 ? -1 : expiry + time(NULL));
             int currsize = key.size() + value.size();
+            json data = json::parse(value);
+            // removing the least recently used(LRU) entries to free up space
             while (size + currsize > capacity)
             {
                 Node *endNode = tail->prev;
@@ -117,16 +128,24 @@ void KVcache::putKey(std::string key, std::string value, int expiry)
                 delete endNode;
                 size -= endSize;
             }
+
             size += currsize;
+
+            // adding to cache and Double linked list
+            cache[key] = new Node(key, data, expiry == -1 ? -1 : expiry + time(NULL));
             insertAfterStart(cache[key]);
+
+            // if expiry is set, adding the key to the priority queue
             if (expiry != -1)
             {
                 pq.push({expiry + time(nullptr), key});
             }
+
             exportFile();
         }
         else
         {
+            // throwing an error if the key already exists
             throw std::runtime_error(key + " already exists");
         }
     }
@@ -152,12 +171,25 @@ void KVcache::batchCreate(int n, KVE val[])
         std::string key = val[i].key;
         json data = val[i].data;
         int expiry = val[i].expiry == -1 ? -1 : val[i].expiry + time(NULL);
+
+        // Validating sizes of key and value
+        if (key.size() > 32 || data.dump().size() > 16 * 1024)
+        {
+            std::cerr << "key or value too long for entry : " << key << std::endl;
+            continue;
+        }
+
         try
         {
             if (cache.find(val[i].key) != cache.end())
+            {
+                std::cerr << "key already exists for entry : " << key << std::endl;
                 continue;
-            cache[key] = new Node(key, data, expiry);
+            }
+
             int currsize = key.size() + data.dump().size();
+
+            // freeing up the LRU if needed for new entries
             while (size + currsize > capacity)
             {
                 Node *endNode = tail->prev;
@@ -167,8 +199,13 @@ void KVcache::batchCreate(int n, KVE val[])
                 delete endNode;
                 size -= endSize;
             }
+
             size += currsize;
+
+            cache[key] = new Node(key, data, expiry);
             insertAfterStart(cache[key]);
+
+            // if expiry is set, adding the key to the priority queue
             if (expiry != -1)
             {
                 pq.push({expiry, key});
@@ -191,6 +228,7 @@ void KVcache::deleteKey(std::string key)
     cv.wait(ul, []()
             { return true; });
 
+    // checking if the key exists
     if (cache.find(key) != cache.end())
     {
         Node *node = cache[key];
@@ -199,11 +237,17 @@ void KVcache::deleteKey(std::string key)
         delete node;
         exportFile();
     }
+    else
+    {
+        // printing an error if the key does not exist
+        std::cerr << key << " does not exist" << std::endl;
+    }
 
     ul.unlock();
     cv.notify_one();
 }
 
+// inserts at the start of the doubly linked list(LRU)
 void KVcache::insertAfterStart(Node *node)
 {
     node->next = head->next;
@@ -212,6 +256,7 @@ void KVcache::insertAfterStart(Node *node)
     head->next = node;
 }
 
+// removes a node from the doubly linked list(LRU)
 void KVcache::removeNode(Node *node)
 {
     Node *x = node->prev;
@@ -221,11 +266,15 @@ void KVcache::removeNode(Node *node)
     y->prev = x;
 }
 
+// clears expired entries
 void KVcache::clearExpired()
 {
     if (pq.empty())
         return;
+
     int now = time(NULL);
+
+    // removing expired entries which have TTL less than current time
     while (!pq.empty() && pq.top().first <= now)
     {
         std::string key = pq.top().second;
@@ -257,14 +306,18 @@ void KVcache::exportFile()
 {
     try
     {
+        // initializing a json object
         json j = json::object();
         int now = time(nullptr);
+
+        // appending all the entries to the json object from the cache
         for (auto [key, node] : cache)
         {
             j[key]["data"] = node->data;
             j[key]["expiry"] = node->expiry;
         }
 
+        // writing to the file as a json object
         std::string data = j.dump();
         ftruncate(fd, 0);
         lseek(fd, 0, SEEK_SET);
@@ -286,20 +339,36 @@ void KVcache::importFile(json &j)
     {
         int now = time(NULL);
 
+        // iterating over the json object
         for (auto [key, value] : j.items())
         {
-            if (size > capacity)
-                break;
             try
             {
                 if (cache.find(key) != cache.end())
                 {
                     continue;
                 }
-                size += key.size() + value["data"].dump().size();
+
+                // skipping the entry if it has expired
+                if (value["expiry"] != -1 && value["expiry"] < now)
+                {
+                    continue;
+                }
+
+                // breaking if the capacity is exceeded
+                int itemSize = key.size() + value["data"].dump().size();
+                if (itemSize + size > capacity)
+                {
+                    break;
+                }
+
+                size += itemSize;
+
                 Node *node = new Node(key, value["data"], value["expiry"]);
                 insertAfterStart(node);
                 cache[key] = node;
+
+                // checking if the entry has an expiry
                 if (value["expiry"] != -1 && value["expiry"] > now)
                 {
                     pq.push({value["expiry"], key});

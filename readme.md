@@ -2,7 +2,7 @@
 
 ## Features
 
-- LRU based cache
+- LRU based cache :- Implemented using Double Linked List
 - TTL support
 - Memory Optimization(Limits memory usage to 1GB)
 - Thread Safe Access
@@ -13,6 +13,10 @@
 
 - Include `kvcache.hpp` in your files to use the library.
 - Pass the `kvcache.cpp` while compiling your code.
+
+- Make sure you have g++ compiler installed and properly configured.
+  - Debian/Ubuntu : `sudo apt-get install build-essential`
+  - Mac/OSX : `xcode-select --install`
 
 ## Tests
 

@@ -32,7 +32,13 @@ int main(int argc, char *argv[])
     cout << "----------------get-------------------" << endl;
 
     json j = kv.getKey(key);
-    cout << j << endl;
+
+    if (j.dump() != value)
+    {
+        throw "Get test failed";
+    }
+
+    cout << "Get test passed" << endl;
 
     cout << "----------------delete-------------------" << endl;
 
@@ -41,7 +47,13 @@ int main(int argc, char *argv[])
 
     // fetching the key
     j = kv.getKey(key);
-    cout << j << endl;
+
+    if (j.dump() != "{}")
+    {
+        throw "Delete test failed";
+    }
+
+    cout << "Delete test passed" << endl;
 
     cout << "----------------create(TTL)-------------------" << endl;
 
@@ -50,20 +62,24 @@ int main(int argc, char *argv[])
 
     // fetching the key
     j = kv.getKey(key);
-    cout << j << endl;
+    cout << j << " with a 3 second TTL" << endl;
 
-    cout << "Waiting for 3 seconds" << endl;
+    cout << "Waiting for 3 seconds : ";
 
     for (int i = 1; i <= 3; i++)
     {
-        cout << i << endl;
+        cout << i << " " << std::flush;
         sleep(1);
     }
 
-    cout << "fetching the data after expiry : " << endl;
-
     j = kv.getKey(key);
-    cout << j << endl;
+
+    if (j.dump() != "{}")
+    {
+        throw "\nTTL test failed";
+    }
+
+    cout << "\nTTL test passed" << endl;
 
     cout << "----------------batch create-------------------" << endl;
     int n = 8;
@@ -80,7 +96,7 @@ int main(int argc, char *argv[])
 
     kv.batchCreate(n, val);
 
-    cout << "retrieving the data from the created keys" << endl;
+    cout << "Retrieving the data from the created keys" << endl;
 
     for (int i = 0; i < n; i++)
     {

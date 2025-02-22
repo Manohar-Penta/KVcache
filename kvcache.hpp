@@ -27,7 +27,7 @@ struct KVE
 {
     std::string key;
     json data;
-    int expiry;
+    int expiry = -1;
 };
 
 class KVcache
