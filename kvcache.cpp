@@ -37,7 +37,7 @@ KVcache::KVcache(std::string name)
             std::ifstream initFile(name);
             std::string content;
             getline(initFile, content);
-            j = json::parse(content);
+            j = content.empty() ? json::object() : json::parse(content);
         }
         catch (const std::exception &e)
         {
@@ -98,21 +98,31 @@ json KVcache::getKey(std::string key)
     return node->data;
 }
 
-void KVcache::putKey(std::string key, std::string value, int expiry)
+void KVcache::putKey(std::string key, std::string value, int expiry, Callback callback)
 {
     // acquiring lock for the mutex
     std::unique_lock ul(m);
     cv.wait(ul, []()
             { return true; });
+    std::vector<Error_obj> err;
     try
     {
         clearExpired();
         // validating key and value lengths
-        if (key.size() > 32 || value.size() > 16 * 1024)
+        if (key.size() > 32)
         {
-            std::cerr << "key or value too long\n";
-            return;
+            // jumping to the callback stage
+            err.push_back({Error_code::KEY_TOO_LONG, "key too long", key, value});
+            goto callback_stage;
         }
+
+        if (value.size() > 16 * 1024)
+        {
+            // jumping to the callback stage
+            err.push_back({Error_code::VALUE_TOO_LONG, "Value too long", key, value});
+            goto callback_stage;
+        }
+
         // checking if the key already exists in the cache
         if (cache.find(key) == cache.end())
         {
@@ -145,27 +155,29 @@ void KVcache::putKey(std::string key, std::string value, int expiry)
         }
         else
         {
-            // throwing an error if the key already exists
-            throw std::runtime_error(key + " already exists");
+            err.push_back({Error_code::KEY_ALREADY_EXISTS, "key already exists", key, value});
         }
     }
     catch (const std::exception &e)
     {
-        std::cout << "error while Creating entry : ";
-        std::cerr << e.what() << '\n';
+        err.push_back({Error_code::UNKNOWN_ERROR, std::string(e.what()), key, value});
     }
+
+callback_stage:
+    callback(err);
 
     // releasing the lock and notifying other threads
     ul.unlock();
     cv.notify_one();
 }
 
-void KVcache::batchCreate(int n, KVE val[])
+void KVcache::batchCreate(int n, KVE val[], Callback callback)
 {
     std::unique_lock ul(m);
     cv.wait(ul, []()
             { return true; });
 
+    std::vector<Error_obj> err;
     for (int i = 0; i < n; i++)
     {
         std::string key = val[i].key;
@@ -173,9 +185,16 @@ void KVcache::batchCreate(int n, KVE val[])
         int expiry = val[i].expiry == -1 ? -1 : val[i].expiry + time(NULL);
 
         // Validating sizes of key and value
-        if (key.size() > 32 || data.dump().size() > 16 * 1024)
+
+        if (key.size() > 32)
         {
-            std::cerr << "key or value too long for entry : " << key << std::endl;
+            err.push_back({Error_code::KEY_TOO_LONG, "key too long", key, data.dump()});
+            continue;
+        }
+
+        if (data.dump().size() > 16 * 1024)
+        {
+            err.push_back({Error_code::VALUE_TOO_LONG, "Value too long", key, data.dump()});
             continue;
         }
 
@@ -183,7 +202,7 @@ void KVcache::batchCreate(int n, KVE val[])
         {
             if (cache.find(val[i].key) != cache.end())
             {
-                std::cerr << "key already exists for entry : " << key << std::endl;
+                err.push_back({Error_code::KEY_ALREADY_EXISTS, "key already exists", key, data.dump()});
                 continue;
             }
 
@@ -213,21 +232,23 @@ void KVcache::batchCreate(int n, KVE val[])
         }
         catch (const std::exception &e)
         {
-            std::cerr << e.what() << '\n';
+            err.push_back({Error_code::UNKNOWN_ERROR, std::string(e.what()), key, data.dump()});
         }
     }
 
+    callback(err);
     exportFile();
     ul.unlock();
     cv.notify_one();
 }
 
-void KVcache::deleteKey(std::string key)
+void KVcache::deleteKey(std::string key, Callback callback)
 {
     std::unique_lock ul(m);
     cv.wait(ul, []()
             { return true; });
 
+    std::vector<Error_obj> err;
     // checking if the key exists
     if (cache.find(key) != cache.end())
     {
@@ -240,9 +261,10 @@ void KVcache::deleteKey(std::string key)
     else
     {
         // printing an error if the key does not exist
-        std::cerr << key << " does not exist" << std::endl;
+        err.push_back({Error_code::KEY_NOT_FOUND, "key not found", key, ""});
     }
 
+    callback(err);
     ul.unlock();
     cv.notify_one();
 }

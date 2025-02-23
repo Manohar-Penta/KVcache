@@ -30,7 +30,7 @@ void createKeys(KVcache &kv, int i)
 
 int main()
 {
-    KVcache kv("thread-store.json");
+    KVcache kv("thread-store" + std::to_string(time(nullptr)) + ".json");
     cout << "----------------------------------------" << endl;
     cout << "Starting the threads" << endl;
 
@@ -47,11 +47,10 @@ int main()
         int x = i > 50;
         if (k["ivalue"] != x || k["jvalue"] != i - x * 50)
         {
-            std::cerr << "error at key : " << i << endl;
-            return 1;
+            throw "\033[31mThere is an error : \033[0m key_" + i;
         }
     }
-    cout << "All keys from the threads are written correctly!!" << endl;
+    cout << "\033[32mAll keys from the threads are written correctly!!\033[0m" << endl;
     // getchar(); // you can use uncomment this line to pause the program, this can be used to check concurrent access of the system
     return 0;
 }
