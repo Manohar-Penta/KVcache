@@ -164,11 +164,11 @@ void KVcache::putKey(std::string key, std::string value, int expiry, Callback ca
     }
 
 callback_stage:
-    callback(err);
-
     // releasing the lock and notifying other threads
     ul.unlock();
     cv.notify_one();
+
+    callback(err);
 }
 
 void KVcache::batchCreate(int n, KVE val[], Callback callback)
@@ -236,10 +236,10 @@ void KVcache::batchCreate(int n, KVE val[], Callback callback)
         }
     }
 
-    callback(err);
     exportFile();
     ul.unlock();
     cv.notify_one();
+    callback(err);
 }
 
 void KVcache::deleteKey(std::string key, Callback callback)
@@ -264,9 +264,9 @@ void KVcache::deleteKey(std::string key, Callback callback)
         err.push_back({Error_code::KEY_NOT_FOUND, "key not found", key, ""});
     }
 
-    callback(err);
     ul.unlock();
     cv.notify_one();
+    callback(err);
 }
 
 // inserts at the start of the doubly linked list(LRU)
